@@ -4,7 +4,11 @@ COCO dataset which returns image_id for evaluation.
 
 Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references/detection/coco_utils.py
 """
+import os
 from pathlib import Path
+from PIL import Image
+
+import numpy as np
 
 import torch
 import torch.utils.data
@@ -20,6 +24,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
 
+
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
@@ -28,6 +33,50 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         if self._transforms is not None:
             img, target = self._transforms(img, target)
         return img, target
+
+
+class CocoDetection_query(torchvision.datasets.CocoDetection):
+    """
+    this is the torchvision dataset which provides a query image to match the single category
+    of bounding boxes which is returned on each iteration.
+    """
+    def __init__(self, img_folder, ann_file, transforms, return_masks):
+        super(CocoDetection_query, self).__init__(img_folder, ann_file)
+        self._transforms = transforms
+        self.prepare = ConvertCocoPolysToMask(return_masks)
+
+        # Query SEt
+        self.query_set = {k: [] for k in self.coco.cats.keys()}
+        for k, v in self.coco.anns.items():
+            self.query_set[v['category_id']].append({'image_id': v['image_id'], 'bbox': v['bbox'], 'id': v['id']})
+
+    def __getitem__(self, idx):
+
+        img, target = super(CocoDetection_query, self).__getitem__(idx)
+
+        # pick one class per image and limit targets to that class
+        cat_id = np.random.choice([t['category_id'] for t in target])
+        target = [t for t in target if t['category_id'] == cat_id]
+        # get query image (not from same image)
+        image_id = self.ids[idx]
+        annot_id = image_id
+        while annot_id == image_id:
+            query = np.random.choice(self.query_set[cat_id])
+            annot_id = query['image_id']
+        path = self.coco.loadImgs(annot_id)[0]['file_name']
+        query_img = np.array(Image.open(os.path.join(self.root, path)).convert('RGB'))
+
+        # crop to only bbox
+        x, y, w, h = query['bbox']
+        query_img = query_img[int(y):int(y + h), int(x):int(x + w), :]
+
+        # process org image and target
+        target = {'image_id': image_id, 'annotations': target}
+        img, target = self.prepare(img, target)
+        if self._transforms is not None:
+            img, target = self._transforms(img, target)
+
+        return img, target, query_img
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):

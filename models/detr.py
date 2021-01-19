@@ -20,7 +20,7 @@ from .transformer import build_transformer
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, backbone, transformer, num_classes, num_queries, aux_loss=False):
+    def __init__(self, backbone, transformer, num_classes, num_queries=3, aux_loss=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -33,15 +33,15 @@ class DETR(nn.Module):
         super().__init__()
         self.num_queries = num_queries
         self.transformer = transformer
-        hidden_dim = transformer.d_model
+        hidden_dim       = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
-        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)
-        self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
-        self.backbone = backbone
-        self.aux_loss = aux_loss
+        self.bbox_embed  = MLP(hidden_dim, hidden_dim, 4, 3)
+        #self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        self.input_proj  = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
+        self.backbone    = backbone
+        self.aux_loss    = aux_loss
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor, query: NestedTensor):
         """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
@@ -58,11 +58,20 @@ class DETR(nn.Module):
         """
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.backbone(samples)
+
+        # embed image
+        features, pos        = self.backbone(samples)
+
+        # embed query
+        query_fts, query_pos = self.backbone(query)
+
+        # expend query to num_queries
+        query_fts = torch.cat(self.num_queries*[query_fts])
 
         src, mask = features[-1].decompose()
         assert mask is not None
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
+        #hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
+        hs = self.transformer(self.input_proj(src), mask, query_fts, pos[-1])[0]
 
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
@@ -310,29 +319,37 @@ def build(args):
     # you should pass `num_classes` to be 2 (max_obj_id + 1).
     # For more details on this, check the following discussion
     # https://github.com/facebookresearch/detr/issues/108#issuecomment-650269223
-    num_classes = 20 if args.dataset_file != 'coco' else 91
+
     if args.dataset_file == "coco_panoptic":
         # for panoptic, we just add a num_classes that is large enough to hold
         # max_obj_id + 1, but the exact value doesn't really matter
         num_classes = 250
-    device = torch.device(args.device)
 
-    backbone = build_backbone(args)
+    # -
+    # Model
 
+    device      = torch.device(args.device)
+    backbone    = build_backbone(args)
     transformer = build_transformer(args)
 
     model = DETR(
         backbone,
         transformer,
-        num_classes=num_classes,
-        num_queries=args.num_queries,
-        aux_loss=args.aux_loss,
+        num_classes = args.num_classes,
+        num_queries = args.num_queries,
+        aux_loss    = args.aux_loss,
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
+
+    # -
+    # Loss
+
     matcher = build_matcher(args)
-    weight_dict = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef}
-    weight_dict['loss_giou'] = args.giou_loss_coef
+
+    weight_dict = {'loss_ce': 1,
+                   'loss_bbox': args.bbox_loss_coef,
+                   'loss_giou': args.giou_loss_coef}
     if args.masks:
         weight_dict["loss_mask"] = args.mask_loss_coef
         weight_dict["loss_dice"] = args.dice_loss_coef
@@ -345,10 +362,17 @@ def build(args):
 
     losses = ['labels', 'boxes', 'cardinality']
     if args.masks:
-        losses += ["masks"]
-    criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
-                             eos_coef=args.eos_coef, losses=losses)
+        losses.append("masks")
+    criterion = SetCriterion(args.num_classes,
+                             matcher     = matcher,
+                             weight_dict = weight_dict,
+                             eos_coef    = args.eos_coef,
+                             losses      = losses)
     criterion.to(device)
+
+    # -
+    # Postprocessors
+
     postprocessors = {'bbox': PostProcess()}
     if args.masks:
         postprocessors['segm'] = PostProcessSegm()
