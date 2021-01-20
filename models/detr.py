@@ -36,10 +36,23 @@ class DETR(nn.Module):
         hidden_dim       = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
         self.bbox_embed  = MLP(hidden_dim, hidden_dim, 4, 3)
-        #self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.input_proj  = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
         self.backbone    = backbone
         self.aux_loss    = aux_loss
+
+    def gem(self, F, p=4):
+        """
+        Generalized Mean Pooling.
+        https://pdfs.semanticscholar.org/a2ca/e0ed91d8a3298b3209fc7ea0a4248b914386.pdf
+        if p = 1, GeM = GlobalAveragePooling, if p = +Inf GeM=GlobalMaxPooling
+        """
+
+        F = F ** p
+        bs, c, h, w = F.shape
+        F = F.sum(dim=(2, 3)) * 1. / w / h
+        F = F ** (1. / p)
+        return F
 
     def forward(self, samples: NestedTensor, query: NestedTensor):
         """ The forward expects a NestedTensor, which consists of:
@@ -62,8 +75,9 @@ class DETR(nn.Module):
         # embed image
         features, pos        = self.backbone(samples)
 
-        # embed query
+        # embed query + pool
         query_fts, query_pos = self.backbone(query)
+        query_fts            = self.gem(query_fts, p=4)
 
         # expend query to num_queries
         query_fts = torch.cat(self.num_queries*[query_fts])
@@ -71,7 +85,7 @@ class DETR(nn.Module):
         src, mask = features[-1].decompose()
         assert mask is not None
         #hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
-        hs = self.transformer(self.input_proj(src), mask, query_fts, pos[-1])[0]
+        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight+query_fts, pos[-1])[0]
 
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()

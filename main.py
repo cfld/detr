@@ -112,13 +112,13 @@ def main(args):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    params = [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]
 
     print('number of params:', n_parameters)
 
     param_dicts = [
-        {"params": params},
-        {"params": params, "lr": args.lr_backbone}
+        {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
+        {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" in n and p.requires_grad],
+         "lr": args.lr_backbone},
     ]
     optimizer    = torch.optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
