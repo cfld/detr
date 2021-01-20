@@ -64,7 +64,7 @@ def get_args_parser():
     parser.add_argument('--eos_coef', default=0.1, type=float,  help="Relative classification weight of the no-object class")
 
     # dataset parameters
-    parser.add_argument('--dataset_file', default='coco')
+    parser.add_argument('--dataset_file', type=str, default='lwll')
     parser.add_argument('--coco_path', type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
@@ -127,7 +127,10 @@ def main(args):
     # Data
 
     dataset_train = build_dataset(image_set='train', args=args)
-    dataset_val   = build_dataset(image_set='val',   args=args)
+    #dataset_val   = build_dataset(image_set='val',   args=args)
+    dataset_val    = build_dataset(image_set='test', args=args)
+
+    print(dataset_train.coco.dataset['categories'])
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -140,13 +143,13 @@ def main(args):
 
     data_loader_train = DataLoader(dataset_train,
                                    batch_sampler = batch_sampler_train,
-                                   collate_fn    = utils.collate_fn,
+                                   collate_fn    = utils.collate_fn_query,
                                    num_workers   = args.num_workers)
     data_loader_val   = DataLoader(dataset_val,
                                    args.batch_size,
                                    sampler      = sampler_val,
                                    drop_last    = False,
-                                   collate_fn   = utils.collate_fn,
+                                   collate_fn   = utils.collate_fn_query,
                                    num_workers  = args.num_workers)
 
     if args.dataset_file == "coco_panoptic":
@@ -169,11 +172,20 @@ def main(args):
             checkpoint = torch.hub.load_state_dict_from_url(args.resume, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.resume, map_location='cpu')
+
         model_without_ddp.load_state_dict(checkpoint['model'])
+        
+        # adjust class params
+
+        # model.module.class_embed = torch.nn.Linear(model.module.transformer.d_model, args.num_classes)
+        # model.module.class_embed.to(device)
+
+
         if not args.eval and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             args.start_epoch = checkpoint['epoch'] + 1
+
 
     # -
     # Eval Module

@@ -32,6 +32,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         img, target = self.prepare(img, target)
         if self._transforms is not None:
             img, target = self._transforms(img, target)
+            
         return img, target
 
 
@@ -42,8 +43,10 @@ class CocoDetection_query(torchvision.datasets.CocoDetection):
     """
     def __init__(self, img_folder, ann_file, transforms, return_masks):
         super(CocoDetection_query, self).__init__(img_folder, ann_file)
-        self._transforms = transforms
+        self.image_transforms = transforms
+        self.query_transforms = make_coco_transforms('query')
         self.prepare = ConvertCocoPolysToMask(return_masks)
+
 
         # Query SEt
         self.query_set = {k: [] for k in self.coco.cats.keys()}
@@ -73,9 +76,10 @@ class CocoDetection_query(torchvision.datasets.CocoDetection):
         # process org image and target
         target = {'image_id': image_id, 'annotations': target}
         img, target = self.prepare(img, target)
-        if self._transforms is not None:
-            img, target = self._transforms(img, target)
-
+        if self.image_transforms is not None:
+            img, target = self.image_transforms(img, target)
+        if self.query_transforms is not None:
+            query_img, _ = self.query_transforms(query_img, target)
         return img, target, query_img
 
 
@@ -184,16 +188,20 @@ def make_coco_transforms(image_set):
             normalize,
         ])
 
-    if image_set == 'val':
+    if (image_set == 'val' or image_set == 'test'):
         return T.Compose([
             T.RandomResize([800], max_size=1333),
             normalize,
         ])
 
+    if image_set == 'query':
+        return T.Compose([
+            normalize,
+        ])
     raise ValueError(f'unknown {image_set}')
 
 
-def build(image_set, args):
+def build_coco(image_set, args):
     root = Path(args.coco_path)
     assert root.exists(), f'provided COCO path {root} does not exist'
     mode = 'instances'
@@ -204,4 +212,11 @@ def build(image_set, args):
 
     img_folder, ann_file = PATHS[image_set]
     dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
+    return dataset
+
+def build_lwll(image_set, args):
+    prob = os.path.basename(os.path.dirname(args.coco_path))
+    img_folder = os.path.join(args.coco_path, f'{prob}_full', str(image_set))
+    ann_file = os.path.join(args.coco_path, 'labels_full', 'coco', f'coco_{image_set}.json')
+    dataset = CocoDetection_query(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
     return dataset

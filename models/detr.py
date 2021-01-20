@@ -35,8 +35,10 @@ class DETR(nn.Module):
         self.transformer = transformer
         hidden_dim       = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
+
         self.bbox_embed  = MLP(hidden_dim, hidden_dim, 4, 3)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        #self.query_embed = nn.Embedding(2048, hidden_dim)
         self.input_proj  = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
         self.backbone    = backbone
         self.aux_loss    = aux_loss
@@ -73,19 +75,21 @@ class DETR(nn.Module):
             samples = nested_tensor_from_tensor_list(samples)
 
         # embed image
-        features, pos        = self.backbone(samples)
-
-        # embed query + pool
-        query_fts, query_pos = self.backbone(query)
-        query_fts            = self.gem(query_fts, p=4)
-
-        # expend query to num_queries
-        query_fts = torch.cat(self.num_queries*[query_fts])
-
-        src, mask = features[-1].decompose()
+        features, pos = self.backbone(samples)
+        src, mask     = features[-1].decompose()
         assert mask is not None
+
+        # embed query + pool, expend query to num_queries
+
+        query_fts, query_pos = self.backbone(query)
+        query_fts, _         = query_fts[-1].decompose()
+        query_fts            = self.input_proj(query_fts)
+        query_fts            = self.gem(query_fts, p=4)
+        query_fts            = torch.stack([query_fts]*self.num_queries,dim=1)
+        query_fts_ = self.query_embed.weight+query_fts
+
         #hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight+query_fts, pos[-1])[0]
+        hs = self.transformer(self.input_proj(src), mask, query_fts_, pos[-1])[0]
 
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
@@ -140,7 +144,6 @@ class SetCriterion(nn.Module):
         target_classes = torch.full(src_logits.shape[:2], self.num_classes,
                                     dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o
-
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
         losses = {'loss_ce': loss_ce}
 
@@ -349,7 +352,8 @@ def build(args):
     model = DETR(
         backbone,
         transformer,
-        num_classes = args.num_classes,
+        #num_classes = args.num_classes,
+        num_classes = 91,
         num_queries = args.num_queries,
         aux_loss    = args.aux_loss,
     )
