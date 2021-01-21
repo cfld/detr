@@ -106,8 +106,21 @@ def main(args):
 
     model, criterion, postprocessors = build_model(args)
     model.to(device)
-
     model_without_ddp = model
+
+    output_dir = Path(args.output_dir)
+    if args.resume:
+        if args.resume.startswith('https'):
+            checkpoint = torch.hub.load_state_dict_from_url(args.resume, map_location='cpu', check_hash=True)
+        else:
+            checkpoint = torch.load(args.resume, map_location='cpu')
+
+        model_without_ddp.load_state_dict(checkpoint['model'])
+        
+        # adjust class params
+        model.class_embed = torch.nn.Linear(model.transformer.d_model, args.num_classes+1)
+        model.class_embed.to(device)
+
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
@@ -162,30 +175,6 @@ def main(args):
     if args.frozen_weights is not None:
         checkpoint = torch.load(args.frozen_weights, map_location='cpu')
         model_without_ddp.detr.load_state_dict(checkpoint['model'])
-
-    # -
-    # Restart from checkpoint
-
-    output_dir = Path(args.output_dir)
-    if args.resume:
-        if args.resume.startswith('https'):
-            checkpoint = torch.hub.load_state_dict_from_url(args.resume, map_location='cpu', check_hash=True)
-        else:
-            checkpoint = torch.load(args.resume, map_location='cpu')
-
-        model_without_ddp.load_state_dict(checkpoint['model'])
-        
-        # adjust class params
-
-        # model.module.class_embed = torch.nn.Linear(model.module.transformer.d_model, args.num_classes)
-        # model.module.class_embed.to(device)
-
-
-        if not args.eval and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-            args.start_epoch = checkpoint['epoch'] + 1
-
 
     # -
     # Eval Module
