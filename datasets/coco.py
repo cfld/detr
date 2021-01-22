@@ -216,7 +216,7 @@ def build_coco(image_set, args):
 
 def build_lwll(image_set, args):
     prob = os.path.basename(os.path.dirname(args.coco_path))
-    img_folder = os.path.join(args.coco_path, f'{prob}_full', str(image_set))
+    img_folder = os.path.join(args.coco_path, f'{prob}_full', str(image_set.split('_')[0]))
     ann_file = os.path.join(args.coco_path, 'labels_full', 'coco', f'coco_{image_set}.json')
-    dataset = CocoDetection_query(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
+    dataset = CocoDetection_query(img_folder, ann_file, transforms=make_coco_transforms(image_set.split('_')[0]), return_masks=args.masks)
     return dataset
