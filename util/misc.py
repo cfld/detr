@@ -288,7 +288,7 @@ def _max_by_axis(the_list):
 class NestedTensor(object):
     def __init__(self, tensors, mask: Optional[Tensor]):
         self.tensors = tensors
-        self.mask = mask
+        self.mask    = mask
 
     def to(self, device):
         # type: (Device) -> NestedTensor # noqa

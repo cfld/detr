@@ -139,7 +139,7 @@ def main(args):
     # -
     # Data
 
-    dataset_train  = build_dataset(image_set='train_3', args=args)
+    dataset_train  = build_dataset(image_set='train', args=args)
     #dataset_val   = build_dataset(image_set='val',   args=args)
     dataset_val    = build_dataset(image_set='test', args=args)
 

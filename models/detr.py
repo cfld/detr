@@ -76,20 +76,18 @@ class DETR(nn.Module):
         features, pos = self.backbone(samples)
         src, mask     = features[-1].decompose()
         assert mask is not None
-
         # embed query + pool, expend query to num_queries
         query_fts, query_pos = self.backbone(query)
         query_fts, _         = query_fts[-1].decompose()
         query_fts            = self.input_proj(query_fts)
         query_fts            = self.gem(query_fts, p=4)
         query_fts            = torch.stack([query_fts]*self.num_queries,dim=1)
-        query_fts_ = self.query_embed.weight+query_fts
+        query_fts_           = self.query_embed.weight+query_fts
 
         #hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
         hs = self.transformer(self.input_proj(src), mask, query_fts_, pos[-1])[0]
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
-
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:

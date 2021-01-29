@@ -45,8 +45,7 @@ class CocoDetection_query(torchvision.datasets.CocoDetection):
         super(CocoDetection_query, self).__init__(img_folder, ann_file)
         self.image_transforms = transforms
         self.query_transforms = make_coco_transforms('query')
-        self.prepare = ConvertCocoPolysToMask(return_masks)
-
+        self.prepare          = ConvertCocoPolysToMask(return_masks)
 
         # Query SEt
         self.query_set = {k: [] for k in self.coco.cats.keys()}
