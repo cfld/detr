@@ -270,6 +270,11 @@ def collate_fn(batch):
     batch[0] = nested_tensor_from_tensor_list(batch[0])
     return tuple(batch)
 
+def collate_fn_query(batch):
+    batch = list(zip(*batch))
+    batch[0] = nested_tensor_from_tensor_list(batch[0])
+    batch[2] = nested_tensor_from_tensor_list(batch[2])
+    return tuple(batch)
 
 def _max_by_axis(the_list):
     # type: (List[List[int]]) -> List[int]
@@ -283,7 +288,7 @@ def _max_by_axis(the_list):
 class NestedTensor(object):
     def __init__(self, tensors, mask: Optional[Tensor]):
         self.tensors = tensors
-        self.mask = mask
+        self.mask    = mask
 
     def to(self, device):
         # type: (Device) -> NestedTensor # noqa
@@ -304,6 +309,7 @@ class NestedTensor(object):
 
 
 def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
+
     # TODO make this more general
     if tensor_list[0].ndim == 3:
         if torchvision._is_tracing():

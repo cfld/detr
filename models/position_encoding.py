@@ -17,8 +17,8 @@ class PositionEmbeddingSine(nn.Module):
     def __init__(self, num_pos_feats=64, temperature=10000, normalize=False, scale=None):
         super().__init__()
         self.num_pos_feats = num_pos_feats
-        self.temperature = temperature
-        self.normalize = normalize
+        self.temperature   = temperature
+        self.normalize     = normalize
         if scale is not None and normalize is False:
             raise ValueError("normalize should be True if scale is passed")
         if scale is None:
@@ -44,7 +44,7 @@ class PositionEmbeddingSine(nn.Module):
         pos_y = y_embed[:, :, :, None] / dim_t
         pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), dim=4).flatten(3)
         pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim=4).flatten(3)
-        pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
+        pos   = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
         return pos
 
 
